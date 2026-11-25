@@ -1,0 +1,69 @@
+# Tashkent Green Watch — main config
+project: tashkent-green-watch
+
+aoi:
+  name: Tashkent
+  # lon_min, lat_min, lon_max, lat_max (approx. Tashkent city)
+  bbox: [69.13, 41.20, 69.43, 41.42]
+  crs: "EPSG:32642"        # UTM zone 42N
+  resolution: 10           # metres (Sentinel-2 native for B02/B03/B04/B08)
+
+imagery:
+  stac_url: "https://planetarycomputer.microsoft.com/api/stac/v1"
+  collection: "sentinel-2-l2a"
+  years: [2019, 2020, 2021, 2022, 2023, 2024, 2025]
+  season: ["06-01", "08-31"]   # summer: vegetation at peak, few clouds
+  max_cloud: 30                # scene-level cloud %, pixel-level masking via SCL
+  max_scenes: 24               # cap per year (least cloudy first)
+  bands: ["B02", "B03", "B04", "B08", "B11", "B12"]
+
+labels:
+  collection: "esa-worldcover"
+  # WorldCover year -> product version on Planetary Computer
+  versions: {2020: "1.0.0", 2021: "2.0.0"}
+  # WorldCover classes counted as "green": 10 tree cover, 20 shrubland
+  # (add 30 grassland if you want lawns/parks grass too)
+  green_classes: [10, 20]
+
+dataset:
+  tile_size: 256
+  train_year: 2021          # imagery + labels used for training
+  temporal_test_year: 2020  # different year -> tests generalisation in time
+  block_size: 1024          # spatial blocks for leakage-free train/val/test split
+  split: {train: 0.7, val: 0.15, test: 0.15}
+  seed: 42
+
+model:
+  arch: "Unet"
+  encoder: "resnet34"
+  encoder_weights: "imagenet"   # set null to train from scratch
+  extra_indices: ["NDVI", "NDBI"]
+
+train:
+  epochs: 40
+  batch_size: 16
+  lr: 0.0003
+  weight_decay: 0.0001
+  num_workers: 0
+  patience: 8               # early stopping on val IoU
+
+change:
+  # hysteresis: green before (p >= high) and not green after (p <= low)
+  high: 0.6
+  low: 0.3
+  min_area_m2: 500          # drop tiny blobs (noise)
+  opening_iterations: 1
+
+aggregate:
+  h3_resolution: 8          # ~0.74 km² hexagons
+  districts_file: "data/boundaries/districts.geojson"   # optional
+  district_name_field: "name"
+
+paths:
+  raw: "data/raw"
+  tiles: "data/tiles"
+  models: "outputs/models"
+  pred: "outputs/pred"
+  change: "outputs/change"
+  stats: "outputs/stats"
+  overlays: "outputs/overlays"

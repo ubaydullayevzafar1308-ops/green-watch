@@ -1,0 +1,8 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      GW_OUTPUTS: ${GW_OUTPUTS:-outputs}
+    volumes:
+      - ./outputs:/app/outputs:ro

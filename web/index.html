@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tashkent Green Watch</title>
+<link rel="stylesheet" href="/web/vendor/leaflet/leaflet.css">
+<script src="/web/vendor/leaflet/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f4; --panel: #ffffff; --ink: #17211b; --muted: #66706a; --line: #e3e7e1;
+    --green: #16a34a; --green-soft: #dcfce7; --loss: #dc2626; --loss-soft: #fee2e2; --gain: #2563eb;
+    --radius: 10px; --font: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--ink); background: var(--bg); }
+  .app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 20px 20px 28px; }
+  #map { height: 100%; }
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--green); }
+  .sub { color: var(--muted); font-size: 13px; margin: 4px 0 18px; line-height: 1.4; }
+  .lang { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+  .lang button { border: 0; background: none; padding: 4px 8px; font-size: 12px; cursor: pointer; color: var(--muted); }
+  .lang button.on { background: var(--ink); color: #fff; }
+  section { border-top: 1px solid var(--line); padding: 14px 0; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  label.sel { flex: 1; font-size: 12px; color: var(--muted); }
+  select { width: 100%; margin-top: 4px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; color: var(--ink); background: #fff; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { background: var(--bg); border-radius: var(--radius); padding: 10px 12px; }
+  .kpi .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .kpi.loss .v { color: var(--loss); } .kpi.gain .v { color: var(--gain); }
+  .toggles label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; cursor: pointer; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 4px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  tr.best td { font-weight: 650; }
+  .hot { display: flex; justify-content: space-between; font-size: 13px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  .hot:hover { background: var(--loss-soft); }
+  .hot b { color: var(--loss); font-variant-numeric: tabular-nums; }
+  .note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .grad { flex: 1; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #b91c1c, #fca5a5, #f5f5f4, #86efac, #15803d); }
+  .err { background: var(--loss-soft); color: var(--loss); padding: 10px; border-radius: 8px; font-size: 13px; }
+  .leaflet-popup-content { font-family: var(--font); font-size: 12.5px; }
+  @media (max-width: 800px) { .app { grid-template-columns: 1fr; grid-template-rows: 55% 45%; } aside { order: 2; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <header>
+      <div><h1>Tashkent <span>Green</span> Watch</h1></div>
+      <div class="lang" id="lang"></div>
+    </header>
+    <p class="sub" data-i18n="subtitle"></p>
+    <div id="error"></div>
+
+    <section>
+      <h2 data-i18n="period"></h2>
+      <div class="row">
+        <label class="sel"><span data-i18n="from"></span><select id="yA"></select></label>
+        <label class="sel"><span data-i18n="to"></span><select id="yB"></select></label>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="city"></h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" id="kA">–</div><div class="l" id="kAl"></div></div>
+        <div class="kpi"><div class="v" id="kB">–</div><div class="l" id="kBl"></div></div>
+        <div class="kpi loss"><div class="v" id="kLoss">–</div><div class="l" data-i18n="lostHa"></div></div>
+        <div class="kpi gain"><div class="v" id="kGain">–</div><div class="l" data-i18n="gainedHa"></div></div>
+      </div>
+      <svg id="spark" width="100%" height="56" style="margin-top:10px"></svg>
+    </section>
+
+    <section class="toggles">
+      <h2 data-i18n="layers"></h2>
+      <label><input type="checkbox" id="lRgb"> <span data-i18n="lRgb"></span></label>
+      <label><input type="checkbox" id="lGreen" checked> <span class="sw" style="background:var(--green)"></span><span data-i18n="lGreen"></span></label>
+      <label><input type="checkbox" id="lHex" checked> <span data-i18n="lHex"></span></label>
+      <div class="legend"><span>−</span><div class="grad"></div><span>+</span><span data-i18n="pp"></span></div>
+      <label><input type="checkbox" id="lLoss" checked> <span class="sw" style="background:var(--loss)"></span><span data-i18n="lLoss"></span></label>
+      <label><input type="checkbox" id="lGain"> <span class="sw" style="background:var(--gain)"></span><span data-i18n="lGain"></span></label>
+    </section>
+
+    <section>
+      <h2 data-i18n="hotspots"></h2>
+      <div id="hotspots" class="note"></div>
+    </section>
+
+    <section>
+      <h2 data-i18n="model"></h2>
+      <div id="metrics" class="note"></div>
+    </section>
+
+    <section><p class="note" data-i18n="about"></p></section>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script>
+const I18N = {
+  uz: { subtitle: "Sentinel-2 sun'iy yo'ldosh suratlari va U-Net neyron tarmog'i asosida Toshkent yashil qoplamini monitoring qilish",
+    period: "Davr", from: "Boshlanish", to: "Tugash", city: "Shahar bo'yicha", greenShare: "yashil qoplam", lostHa: "yo'qotilgan, ga", gainedHa: "qo'shilgan, ga",
+    layers: "Qatlamlar", lRgb: "Sun'iy yo'ldosh surati", lGreen: "Yashil qoplam (model)", lHex: "O'zgarish, H3 olti burchaklar", pp: "f.p.",
+    lLoss: "Yo'qotilgan yashil hududlar", lGain: "Yangi yashil hududlar", hotspots: "Eng ko'p yo'qotish (2019→)", model: "Model sifati",
+    about: "Prototip. Belgilar: ESA WorldCover (daraxt + buta). 10 m aniqlikda alohida daraxtlar emas, yashil zonalar o'zgarishi ko'rinadi.",
+    split: "To'plam", noPair: "Bu juftlik uchun o'zgarishlar hisoblanmagan", clickHint: "Nuqtani bosing — yillar bo'yicha P(yashil)",
+    eventRecall: "Sintetik test: topilgan qurilish holatlari", pixPrec: "piksel aniqligi", confirmed: "tasdiqlangan", area: "maydon", ha: "ga" },
+  ru: { subtitle: "Мониторинг зелёного покрова Ташкента по снимкам Sentinel-2 с помощью нейросети U-Net",
+    period: "Период", from: "С", to: "По", city: "По городу", greenShare: "зелёный покров", lostHa: "потеряно, га", gainedHa: "появилось, га",
+    layers: "Слои", lRgb: "Спутниковый снимок", lGreen: "Зелёный покров (модель)", lHex: "Изменение, гексагоны H3", pp: "п.п.",
+    lLoss: "Потерянные зелёные участки", lGain: "Новые зелёные участки", hotspots: "Наибольшие потери (с первого года)", model: "Качество модели",
+    about: "Прототип. Разметка: ESA WorldCover (деревья + кустарник). При 10 м видны изменения зелёных зон, а не отдельные деревья.",
+    split: "Выборка", noPair: "Для этой пары лет изменения не посчитаны", clickHint: "Кликните по карте — P(зелень) по годам",
+    eventRecall: "Синтетический тест: найдено строек", pixPrec: "точность по пикселям", confirmed: "подтверждено", area: "площадь", ha: "га" },
+  en: { subtitle: "Monitoring Tashkent's green cover from Sentinel-2 imagery with a U-Net segmentation model",
+    period: "Period", from: "From", to: "To", city: "City-wide", greenShare: "green cover", lostHa: "lost, ha", gainedHa: "gained, ha",
+    layers: "Layers", lRgb: "Satellite image", lGreen: "Green cover (model)", lHex: "Change, H3 hexagons", pp: "p.p.",
+    lLoss: "Lost green areas", lGain: "New green areas", hotspots: "Largest losses (since first year)", model: "Model quality",
+    about: "Prototype. Labels: ESA WorldCover (tree + shrub). At 10 m it sees changes of green areas, not individual trees.",
+    split: "Split", noPair: "No precomputed change for this pair", clickHint: "Click the map for P(green) by year",
+    eventRecall: "Synthetic test: construction events found", pixPrec: "pixel precision", confirmed: "confirmed", area: "area", ha: "ha" },
+};
+let lang = localStorage.getItem("gw_lang") || "uz";
+const t = k => (I18N[lang] || I18N.en)[k] || k;
+
+const map = L.map("map", { zoomControl: true }).setView([41.31, 69.28], 12);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  attribution: "&copy; OpenStreetMap &copy; CARTO | Sentinel-2: ESA Copernicus", maxZoom: 19 }).addTo(map);
+
+let META = null, HEX = null;
+const layers = { rgb: null, green: null, hex: null, loss: null, gain: null };
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 1) => v == null || isNaN(v) ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+
+function renderLang() {
+  document.documentElement.lang = lang;
+  $("lang").innerHTML = ["uz", "ru", "en"].map(l => `<button class="${l === lang ? "on" : ""}" data-l="${l}">${l.toUpperCase()}</button>`).join("");
+  $("lang").querySelectorAll("button").forEach(b => b.onclick = () => { lang = b.dataset.l; localStorage.setItem("gw_lang", lang); renderLang(); if (META) { renderSide(); refresh(); } });
+  document.querySelectorAll("[data-i18n]").forEach(el => el.textContent = t(el.dataset.i18n));
+}
+
+async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(`${url}: ${r.status}`); return r.json(); }
+
+function hexColor(d) {
+  if (d == null) return "transparent";
+  const s = Math.max(-1, Math.min(1, d / 8));
+  if (s < 0) { const a = -s; return `rgb(${245 - a * 60},${245 - a * 217},${244 - a * 216})`; }
+  return `rgb(${245 - s * 224},${245 - s * 117},${244 - s * 183})`;
+}
+
+function overlay(kind, year, opacity) {
+  return L.imageOverlay(`/overlays/${kind}_${year}.png`, META.bounds, { opacity, interactive: false });
+}
+
+function setLayer(name, make, on) {
+  if (layers[name]) { map.removeLayer(layers[name]); layers[name] = null; }
+  if (on) { layers[name] = make(); if (layers[name]) layers[name].addTo(map); }
+}
+
+async function changeLayer(kind, a, b) {
+  try {
+    const gj = await getJSON(`/api/changes/${kind}/${a}/${b}`);
+    const color = kind === "loss" ? "#dc2626" : "#2563eb";
+    return L.geoJSON(gj, { style: { color, weight: 1.5, fillColor: color, fillOpacity: 0.35 },
+      onEachFeature: (f, l) => { const p = f.properties;
+        l.bindPopup(`<b>${t(kind === "loss" ? "lLoss" : "lGain")}</b><br>${t("area")}: ${fmt(p.area_m2 / 1e4, 2)} ${t("ha")}<br>P: ${fmt(p.p_before, 2)} → ${fmt(p.p_after, 2)}` +
+          (p.confirmed !== undefined && p.confirmed !== null ? `<br>${t("confirmed")}: ${p.confirmed ? "✓" : "–"}` : "")); } });
+  } catch { return null; }
+}
+
+async function refresh() {
+  const a = +$("yA").value, b = +$("yB").value;
+  const pair = META.changes.find(c => c.from === a && c.to === b);
+  const s = y => META.series.find(r => r.year === y);
+  $("kA").textContent = fmt(s(a).green_share * 100) + "%"; $("kAl").textContent = `${t("greenShare")} ${a}`;
+  $("kB").textContent = fmt(s(b).green_share * 100) + "%"; $("kBl").textContent = `${t("greenShare")} ${b}`;
+  $("kLoss").textContent = pair ? fmt(pair.loss_ha) : "–"; $("kGain").textContent = pair ? fmt(pair.gain_ha) : "–";
+  $("error").innerHTML = pair ? "" : `<div class="err">${t("noPair")}</div>`;
+  drawSpark(a, b);
+
+  setLayer("rgb", () => overlay("rgb", b, 0.9), $("lRgb").checked);
+  setLayer("green", () => overlay("green", b, 0.85), $("lGreen").checked);
+  setLayer("hex", () => L.geoJSON(HEX, {
+    style: f => { const g0 = f.properties[`g_${a}`], g1 = f.properties[`g_${b}`];
+      const d = g0 == null || g1 == null ? null : (g1 - g0) * 100;
+      return { color: "#ffffff", weight: 0.6, fillColor: hexColor(d), fillOpacity: d == null ? 0 : 0.55 }; },
+    onEachFeature: (f, l) => { const g0 = f.properties[`g_${a}`], g1 = f.properties[`g_${b}`];
+      l.bindTooltip(`${a}: ${fmt(g0 * 100)}% → ${b}: ${fmt(g1 * 100)}%<br>Δ ${fmt((g1 - g0) * 100)} ${t("pp")}`, { sticky: true }); } }), $("lHex").checked);
+  for (const k of ["loss", "gain"]) {
+    const on = $(k === "loss" ? "lLoss" : "lGain").checked && pair;
+    if (layers[k]) { map.removeLayer(layers[k]); layers[k] = null; }
+    if (on) { const l = await changeLayer(k, a, b); if (l) { layers[k] = l.addTo(map); } }
+  }
+  if (layers.loss) layers.loss.bringToFront();
+}
+
+function drawSpark(a, b) {
+  const svg = $("spark"), W = svg.clientWidth || 320, H = 56, pad = 6;
+  const v = META.series.map(r => r.green_share * 100), ys = META.series.map(r => r.year);
+  const lo = Math.min(...v) - 0.5, hi = Math.max(...v) + 0.5;
+  const x = i => pad + i * (W - 2 * pad) / Math.max(v.length - 1, 1), y = val => H - pad - (val - lo) / (hi - lo) * (H - 2 * pad - 10);
+  const pts = v.map((val, i) => `${x(i)},${y(val)}`).join(" ");
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="#16a34a" stroke-width="2"/>` +
+    v.map((val, i) => `<circle cx="${x(i)}" cy="${y(val)}" r="${ys[i] === a || ys[i] === b ? 4 : 2.5}" fill="${ys[i] === a || ys[i] === b ? "#17211b" : "#16a34a"}"><title>${ys[i]}: ${fmt(val)}%</title></circle>` +
+      `<text x="${x(i)}" y="${H - 0}" font-size="9" text-anchor="middle" fill="#66706a">${String(ys[i]).slice(2)}</text>`).join("");
+}
+
+function renderSide() {
+  $("hotspots").innerHTML = (META.hotspots || []).slice(0, 6).map((h, i) =>
+    `<div class="hot" data-i="${i}"><span>#${i + 1} · ${h.lat.toFixed(4)}, ${h.lng.toFixed(4)}</span><b>−${fmt(h.loss_m2 / 1e4, 2)} ${t("ha")}</b></div>`).join("") || "–";
+  $("hotspots").querySelectorAll(".hot").forEach(el => el.onclick = () => { const h = META.hotspots[+el.dataset.i]; map.flyTo([h.lat, h.lng], 15); });
+  const m = META.model_metrics || {};
+  const rows = Object.entries(m);
+  let html = rows.length ? `<table><tr><th>${t("split")}</th><th>IoU</th><th>F1</th></tr>` +
+    rows.map(([k, v]) => `<tr><td>${k}</td><td>${fmt(v.iou, 3)}</td><td>${fmt(v.f1, 3)}</td></tr>`).join("") + "</table>" : "";
+  if (META.change_eval) html += `<p>${t("eventRecall")}: <b>${META.change_eval.events_detected}/${META.change_eval.events_total}</b>, ${t("pixPrec")}: <b>${fmt(META.change_eval.pixel_precision * 100)}%</b></p>`;
+  $("metrics").innerHTML = html + `<p>${t("clickHint")}</p>`;
+}
+
+map.on("click", async e => {
+  try {
+    const d = await getJSON(`/api/point?lat=${e.latlng.lat}&lng=${e.latlng.lng}`);
+    const rows = d.series.map(s => `<tr><td>${s.year}</td><td>${s.p_green == null ? "–" : fmt(s.p_green, 2)}</td><td>${s.p_green >= d.threshold ? "🌳" : ""}</td></tr>`).join("");
+    L.popup().setLatLng(e.latlng).setContent(`<table><tr><th></th><th>P(green)</th><th></th></tr>${rows}</table>`).openOn(map);
+  } catch { /* outside AOI */ }
+});
+
+async function init() {
+  renderLang();
+  try {
+    [META, HEX] = await Promise.all([getJSON("/api/meta"), getJSON("/api/hexagons")]);
+  } catch (err) { $("error").innerHTML = `<div class="err">${err.message}</div>`; return; }
+  const opts = META.years.map(y => `<option value="${y}">${y}</option>`).join("");
+  $("yA").innerHTML = opts; $("yB").innerHTML = opts;
+  $("yA").value = META.years[0]; $("yB").value = META.years[META.years.length - 1];
+  map.fitBounds(META.bounds);
+  ["yA", "yB", "lRgb", "lGreen", "lHex", "lLoss", "lGain"].forEach(id => $(id).onchange = refresh);
+  renderSide(); refresh();
+}
+init();
+</script>
+</body>
+</html>
