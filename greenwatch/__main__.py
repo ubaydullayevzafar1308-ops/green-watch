@@ -8,6 +8,8 @@ Commands
   change      detect green loss / gain between years
   aggregate   H3 / district / city statistics
   pipeline    tiles -> train -> infer -> change -> aggregate
+  validation  random sample of loss patches + stable points for manual checking (web/validate.html)
+  validation-score   precision / miss rate from the manual labels
   demo        full pipeline on synthetic data (offline, ~minutes on CPU)
   serve       start API + map (uvicorn)
 """
@@ -81,6 +83,10 @@ def main(argv=None):
 
     modules = {"tiles": "greenwatch.data.tiles", "train": "greenwatch.train", "infer": "greenwatch.infer",
                "change": "greenwatch.change", "aggregate": "greenwatch.aggregate"}
+    if a.command in ("validation", "validation-score"):
+        from greenwatch import validation
+
+        return validation.main(["--score"] if a.command == "validation-score" else [], cfg=cfg)
     if a.command not in modules:
         ap.error(f"unknown command {a.command}")
     mod = import_module(modules[a.command])

@@ -247,6 +247,8 @@ async function init() {
   $("yA").innerHTML = opts; $("yB").innerHTML = opts;
   $("yA").value = META.years[0]; $("yB").value = META.years[META.years.length - 1];
   map.fitBounds(META.bounds);
+  // a page loaded in a hidden tab gets a 0×0 map: re-fit once the container has a real size
+  new ResizeObserver(() => { const z = map.getZoom(); map.invalidateSize(); if (z < 5) map.fitBounds(META.bounds); }).observe($("map"));
   ["yA", "yB", "lRgb", "lGreen", "lHex", "lLoss", "lGain"].forEach(id => $(id).onchange = refresh);
   renderSide(); refresh();
 }

@@ -45,8 +45,9 @@ flowchart LR
 | Dataset | Split by **spatial blocks** (512 px), not random tiles, with a **64 px buffer** between blocks of different splits (buffer pixels belong to no split), so neighbouring pixels cannot leak between train and test. Train = **random 256 px crops** fully inside the train core (500 per epoch); val / test = fixed 256 px tiles. Repeated for **3 spatial folds** (3 independent block assignments). | `greenwatch/data/tiles.py` |
 | Model | U-Net (ResNet-34 encoder, ImageNet init, 8 input channels: B02 B03 B04 B08 B11 B12 + NDVI + NDBI). Masked BCE + Dice loss, flips/rotations, radiometric jitter to simulate year-to-year differences. Early stopping on val IoU; decision threshold tuned on val. Runs on Apple MPS. | `greenwatch/train.py`, `model.py` |
 | Baseline | NDVI threshold, tuned for best F1 on train-core pixels. Every model number is reported next to it. | `train.py::evaluate_fold` |
-| Inference | Sliding window with 50 % overlap and Hann blending (no tile seams). | `model.py::predict_scene` |
-| Change | Hysteresis around the model's own threshold `thr` (from the checkpoint): loss = P ≥ thr + 0.15 before **and** P ≤ thr − 0.15 after, then morphological opening and minimum area 500 m². `confirmed` = the next year is still not green, judged only on next-year pixels with data; `null` if < 50 % of the patch has data or there is no next year. | `greenwatch/change.py` |
+| Inference | **Ensemble of the 3 fold models** (mean probability, mean threshold). Sliding window with 50 % overlap and Hann blending (no tile seams). | `model.py::predict_scene_ensemble` |
+| Manual check | Blind random sample of 50 loss patches + 50 "no change" points with RGB chips before / after; label them at `/validate`, then `validation-score` gives change precision and miss rate with 95 % CI. This is the only check against reality rather than WorldCover. | `greenwatch/validation.py`, `web/validate.html` |
+| Change | Conservative hysteresis around the deployed model threshold `thr` (precision over recall): loss = P ≥ max(thr + 0.15, 0.5) before **and** P ≤ min(thr − 0.1, 0.2) after, then morphological opening and minimum area 500 m². `confirmed` = the next year is still not green, judged only on next-year pixels with data; `null` if < 50 % of the patch has data or there is no next year. | `greenwatch/change.py` |
 | Aggregation | Green share per year (each year on its own valid-pixel mask), loss/gain m² per H3 cell (res 8 ≈ 0.74 km²) and per district (optional GeoJSON). | `greenwatch/aggregate.py` |
 | Serving | FastAPI (`/api/meta`, `/api/hexagons`, `/api/changes/...`, `/api/point`) and a Leaflet map with no CDN dependency. | `greenwatch/api`, `web/` |
 
@@ -93,8 +94,9 @@ iterations, so compare the U-Net − NDVI gap rather than absolute numbers: −0
 random crops, early stopping after 27–32 epochs) and from a test set large enough to be meaningful.
 </details>
 
-**Change 2020 → 2021 (deployed fold-0 model, threshold 0.275 → hysteresis 0.425 / 0.125):** 904 ha of
-candidate loss (2 963 patches) and 151 ha of gain; city green share 12.0 % → 8.9 %. Treat this with
+**Change 2020 → 2021 (3-fold ensemble, threshold 0.275 → conservative hysteresis 0.50 / 0.175):** 697 ha of
+candidate loss (2 344 patches) and 98 ha of gain; city green share 12.1 % → 8.9 %. (Second iteration with the
+fold-0 model and 0.425 / 0.125: 904 ha, 2 963 patches.) Manual blind check of a random sample is pending. Treat this with
 caution: part of it is year-to-year domain shift of the model (`test_time` is clearly worse than `test`)
 and a different WorldCover version, not real change. With only two years there is no following year, so
 every patch has `confirmed = null` (not checked). Download 2019 and 2022–2025 to get confirmations.
@@ -118,6 +120,8 @@ make pipeline            # tiles → train (MPS) → infer → change → aggreg
 make serve               # → http://localhost:8000
 make mlflow              # experiment tracking UI → http://localhost:5000
 
+make validation          # sample for manual checking → http://localhost:8000/validate
+make validation-score    # precision of detected loss from your labels
 make test                # unit tests + end-to-end pipeline + API
 ```
 

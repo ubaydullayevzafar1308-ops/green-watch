@@ -5,10 +5,13 @@ Gain  = the reverse.
 Hysteresis (two thresholds) suppresses flicker of pixels near the decision
 boundary; morphological opening + minimum area drop speckle noise.
 
-The two thresholds are tied to the model's own decision threshold `thr`
-(tuned on val and stored in the checkpoint): high = thr + high_offset,
-low = thr - low_offset, clipped to [0.05, 0.95]. A fixed 0.6 / 0.3 would
-disagree with the green map whenever the tuned threshold is not 0.5.
+The two thresholds are tied to the deployed model's decision threshold `thr`
+(F1-optimal on val), but made deliberately CONSERVATIVE — for change maps we
+care more about precision (few false alarms) than about recall:
+    high = max(thr + high_offset, high_min)    "surely green" before
+    low  = min(thr - low_offset,  low_max)     "surely not green" after
+both clipped to [0.05, 0.95]. The F1-optimal thr itself is tuned for the green
+map, where missing and inventing green cost about the same.
 
 `confirmed` (only for pairs of consecutive years that have a following year):
 the patch is still not green (loss) / still green (gain) in the next year,
@@ -48,18 +51,20 @@ MIN_NEXT_VALID = 0.5  # share of a patch that must have next-year data to judge 
 
 
 def hysteresis_thresholds(thr: float, cfg_change: dict) -> tuple[float, float]:
-    """(high, low) around the model threshold, clipped to [0.05, 0.95]."""
-    hi = float(np.clip(thr + cfg_change["high_offset"], 0.05, 0.95))
-    lo = float(np.clip(thr - cfg_change["low_offset"], 0.05, 0.95))
+    """Conservative (high, low) around the model threshold, clipped to [0.05, 0.95]."""
+    hi = max(thr + cfg_change["high_offset"], cfg_change.get("high_min", 0.0))
+    lo = min(thr - cfg_change["low_offset"], cfg_change.get("low_max", 1.0))
+    hi, lo = float(np.clip(hi, 0.05, 0.95)), float(np.clip(lo, 0.05, 0.95))
+    if lo >= hi:
+        raise ValueError(f"hysteresis low {lo} >= high {hi}; check change.* in config")
     return round(hi, 4), round(lo, 4)
 
 
 def model_threshold(cfg) -> float:
-    """Decision threshold stored in the deployed checkpoint (outputs/models/best.pt)."""
-    import torch
+    """Decision threshold of the deployed model (fold ensemble if present, else best.pt)."""
+    from greenwatch.model import deployed_threshold
 
-    ck = torch.load(p(cfg, "models") / "best.pt", map_location="cpu", weights_only=False)
-    return float(ck["meta"]["threshold"])
+    return deployed_threshold(p(cfg, "models"))
 
 
 def detect(p0, p1, valid, cfg_change, res_m, kind="loss", thr=0.5):
@@ -133,7 +138,7 @@ def main(argv=None, cfg=None):
     res = cfg["aoi"]["resolution"]
     thr = model_threshold(cfg)
     hi, lo = hysteresis_thresholds(thr, cfg["change"])
-    print(f"[change] model threshold {thr:.3f} -> hysteresis high {hi:.3f} / low {lo:.3f}")
+    print(f"[change] model threshold {thr:.3f} -> conservative hysteresis high {hi:.3f} / low {lo:.3f}")
     probs = {y: read_prob(cfg, y) for y in years}
     out_dir = p(cfg, "change")
     summary = []

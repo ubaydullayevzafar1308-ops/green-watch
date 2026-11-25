@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 
 import numpy as np
@@ -48,8 +49,9 @@ def test_hysteresis_detects_loss_only():
     p1 = p0.copy()
     p1[5:15, 5:15] = 0.1   # real loss
     p1[20:28, 20:28] = 0.5  # ambiguous -> ignored
-    cfg = {"high_offset": 0.15, "low_offset": 0.15, "min_area_m2": 500, "opening_iterations": 0}
-    # model threshold 0.45 -> high 0.60 / low 0.30
+    cfg = {"high_offset": 0.15, "high_min": 0.5, "low_offset": 0.1, "low_max": 0.2,
+           "min_area_m2": 500, "opening_iterations": 0}
+    # model threshold 0.45 -> high max(0.60, 0.5) = 0.60 / low min(0.35, 0.2) = 0.20
     mask, _, n = detect(p0, p1, np.ones_like(p0, bool), cfg, res_m=10, kind="loss", thr=0.45)
     assert n == 1 and mask[10, 10] and not mask[24, 24]
 
@@ -69,6 +71,12 @@ def test_end_to_end_synthetic(tmp_path):
     synthetic.generate(cfg, size=384)
     run_pipeline(cfg)
     synthetic.score_change(cfg)
+    from greenwatch import validation
+
+    vmeta = validation.build(cfg, n_loss=5, n_stable=5)
+    assert vmeta["pair"] == [2020, 2022] and vmeta["n_stable"] == 5
+    vsample = json.loads((tmp_path / "validation" / "change_sample.geojson").read_text())
+    assert all((tmp_path / f["properties"]["chip_before"].lstrip("/")).exists() for f in vsample["features"])
     for f in ["models/best.pt", "models/metrics.json", "stats/h3.geojson", "stats/summary.json",
               "change/loss_2020_2022.geojson", "overlays/index.json", "pred/prob_2022.tif"]:
         sub, name = f.split("/")
@@ -77,7 +85,7 @@ def test_end_to_end_synthetic(tmp_path):
 
     # API on top of these outputs
     os.makedirs(tmp_path / "out", exist_ok=True)
-    for k in ["stats", "overlays", "change", "pred", "models"]:
+    for k in ["stats", "overlays", "change", "pred", "models", "validation"]:
         os.symlink(tmp_path / k, tmp_path / "out" / k)
     os.environ["GW_OUTPUTS"] = str(tmp_path / "out")
     from fastapi.testclient import TestClient
@@ -95,3 +103,4 @@ def test_end_to_end_synthetic(tmp_path):
     lng = (meta["bounds"][0][1] + meta["bounds"][1][1]) / 2
     pt = c.get(f"/api/point?lat={lat}&lng={lng}").json()
     assert len(pt["series"]) == 3
+    assert len(c.get("/api/validation/sample").json()["features"]) == vmeta["n_loss"] + vmeta["n_stable"]

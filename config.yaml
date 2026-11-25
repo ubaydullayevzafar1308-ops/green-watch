@@ -14,7 +14,7 @@ imagery:
   years: [2019, 2020, 2021, 2022, 2023, 2024, 2025]
   season: ["06-01", "08-31"]   # summer: vegetation at peak, few clouds
   max_cloud: 30                # scene-level cloud %, pixel-level masking via SCL
-  max_scenes: 8                # cap per year (least cloudy first)
+  max_scenes: 24               # cap per year (least cloudy first)
   bands: ["B02", "B03", "B04", "B08", "B11", "B12"]
 
 labels:
@@ -50,10 +50,14 @@ train:
   patience: 8               # early stopping on val IoU
 
 change:
-  # hysteresis around the model threshold thr (from the checkpoint):
-  # green before (p >= thr + high_offset) and not green after (p <= thr - low_offset), clipped to 0.05..0.95
+  # conservative hysteresis around the deployed model threshold thr (precision over recall):
+  #   high = max(thr + high_offset, high_min)   green before:     p >= high
+  #   low  = min(thr - low_offset,  low_max)    not green after:  p <= low
+  # both clipped to 0.05..0.95
   high_offset: 0.15
-  low_offset: 0.15
+  high_min: 0.5
+  low_offset: 0.1
+  low_max: 0.2
   min_area_m2: 500          # drop tiny blobs (noise)
   opening_iterations: 1
 

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Green Watch — ручная проверка изменений</title>
+<!--
+  Blind manual validation of detected green-cover loss.
+  Samples (loss patches + random "no change" points) are shuffled; the page never shows
+  which group a sample belongs to or what the model predicted. Labels are saved to
+  outputs/validation/labels.json through POST /api/validation/labels (and mirrored in
+  localStorage, so nothing is lost if the API is down). Keys: 1 / 2 / 3, ← →.
+-->
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1b; --mute:#6b6b66; --line:#e4e4df;
+          --real:#c0392b; --false:#2e7d32; --unclear:#8a8a84; --acc:#1f6feb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:16px; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:2; }
+  header h1 { font-size:17px; margin:0; font-weight:650; }
+  .grow { flex:1; }
+  .bar { height:8px; width:220px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--acc); width:0; transition:width .2s; }
+  .lang button, .btn { border:1px solid var(--line); background:var(--card); padding:6px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+  .lang button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  main { max-width:1100px; margin:20px auto; padding:0 20px; }
+  .q { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+  .q b { font-weight:650; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  .chips { display:flex; gap:18px; flex-wrap:wrap; justify-content:center; }
+  .chip { text-align:center; }
+  .chip img { width:384px; height:384px; image-rendering:pixelated; border-radius:6px; border:1px solid var(--line); background:#000; display:block; }
+  .chip span { display:block; margin-top:6px; color:var(--mute); font-size:14px; }
+  .meta { display:flex; justify-content:space-between; align-items:center; margin:14px 0 4px; color:var(--mute); font-size:14px; flex-wrap:wrap; gap:8px; }
+  .meta a { color:var(--acc); }
+  .answers { display:flex; gap:12px; justify-content:center; margin-top:14px; flex-wrap:wrap; }
+  .answers button { font:inherit; font-weight:600; padding:12px 18px; min-width:200px; border-radius:8px; cursor:pointer; border:2px solid var(--line); background:var(--card); }
+  .answers button[data-l=real].sel { border-color:var(--real); background:#fbeae8; }
+  .answers button[data-l=false].sel { border-color:var(--false); background:#e8f3e9; }
+  .answers button[data-l=unclear].sel { border-color:var(--unclear); background:#f0f0ee; }
+  .answers kbd { font:12px ui-monospace, monospace; border:1px solid var(--line); border-radius:4px; padding:1px 5px; margin-right:6px; color:var(--mute); }
+  .nav { display:flex; justify-content:space-between; margin-top:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(46px, 1fr)); gap:6px; margin-top:18px; }
+  .grid button { font:12px ui-monospace, monospace; padding:6px 0; border-radius:5px; border:1px solid var(--line); background:var(--card); cursor:pointer; }
+  .grid button.cur { outline:2px solid var(--acc); }
+  .grid button.real { background:var(--real); color:#fff; border-color:var(--real); }
+  .grid button.false { background:var(--false); color:#fff; border-color:var(--false); }
+  .grid button.unclear { background:var(--unclear); color:#fff; border-color:var(--unclear); }
+  .status { font-size:13px; color:var(--mute); min-width:130px; text-align:right; }
+  .err { color:var(--real); }
+  footer { color:var(--mute); font-size:13px; margin:22px 0 40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="bar"><div id="prog"></div></div>
+  <span id="count"></span>
+  <span class="grow"></span>
+  <span class="status" id="status"></span>
+  <button class="btn" id="dl"></button>
+  <span class="lang"><button data-lang="uz">UZ</button><button data-lang="ru">RU</button><button data-lang="en">EN</button></span>
+</header>
+<main>
+  <div class="q" id="question"></div>
+  <div class="card" id="card"></div>
+  <div class="grid" id="grid"></div>
+  <footer id="foot"></footer>
+</main>
+<script>
+const I18N = {
+  ru: { title: "Ручная проверка потерь зелени", done: "размечено", dl: "Скачать JSON",
+    q: (a, b) => `Есть ли <b>реальная потеря деревьев / кустарника</b> внутри жёлтого круга (радиус 30 м) между <b>${a}</b> и <b>${b}</b>? «Реальная» — до было зелено (кроны), после — нет (стройка, вырубка, асфальт). Если зелени не было в обоих годах или она осталась — «ложное». Поля и газоны — не деревья.`,
+    real: "Реальная потеря", false: "Ложное / нет потери", unclear: "Непонятно", prev: "← Назад", next: "Вперёд →", nextU: "Следующая неразмеченная",
+    saved: "сохранено", local: "сохранено локально (API недоступен)", maps: "Открыть в Google Maps (история снимков)", osm: "OSM",
+    foot: "Порядок точек случайный, и страница специально не показывает, что предсказала модель: разметка вслепую. Снимки 10 м (Sentinel-2, летний медианный композит), окно 640 × 640 м.", noSample: "Нет выборки. Запустите: python -m greenwatch validation" },
+  en: { title: "Manual check of green-cover loss", done: "labelled", dl: "Download JSON",
+    q: (a, b) => `Is there a <b>real loss of trees / shrubs</b> inside the yellow circle (30 m radius) between <b>${a}</b> and <b>${b}</b>? "Real" = green canopy before, not after (construction, cutting, paving). If it was not green in both years, or is still green, it is "false". Fields and lawns are not trees.`,
+    real: "Real loss", false: "False / no loss", unclear: "Unclear", prev: "← Back", next: "Next →", nextU: "Next unlabelled",
+    saved: "saved", local: "saved locally (API unavailable)", maps: "Open in Google Maps (imagery history)", osm: "OSM",
+    foot: "Points are in random order and the page deliberately hides what the model predicted: blind labelling. Imagery is 10 m (Sentinel-2 summer median composite), window 640 × 640 m.", noSample: "No sample yet. Run: python -m greenwatch validation" },
+  uz: { title: "Yashil qoplam yo'qotilishini qo'lda tekshirish", done: "belgilandi", dl: "JSON yuklab olish",
+    q: (a, b) => `<b>${a}</b> va <b>${b}</b> oralig'ida sariq doira ichida (radius 30 m) <b>daraxt / buta haqiqatan yo'qolganmi</b>? «Haqiqiy» — oldin yashil (daraxt toji), keyin yo'q (qurilish, kesish, asfalt). Ikkala yilda ham yashil bo'lmasa yoki yashilligicha qolsa — «yolg'on». Dala va maysazor daraxt emas.`,
+    real: "Haqiqiy yo'qotish", false: "Yolg'on / yo'qotish yo'q", unclear: "Noaniq", prev: "← Orqaga", next: "Oldinga →", nextU: "Keyingi belgilanmagan",
+    saved: "saqlandi", local: "lokal saqlandi (API ishlamayapti)", maps: "Google Maps'da ochish (suratlar tarixi)", osm: "OSM",
+    foot: "Nuqtalar tasodifiy tartibda, sahifa modelning bashoratini ataylab ko'rsatmaydi: ko'r-ko'rona belgilash. Suratlar 10 m (Sentinel-2, yozgi median kompozit), oyna 640 × 640 m.", noSample: "Tanlama yo'q. Ishga tushiring: python -m greenwatch validation" },
+};
+let lang = localStorage.getItem("gw_lang") || "ru";
+const t = (k, ...a) => { const v = I18N[lang][k]; return typeof v === "function" ? v(...a) : v; };
+const $ = (id) => document.getElementById(id);
+const LS_KEY = "gw_validation_labels";
+let SAMPLE = [], META = {}, LABELS = {}, cur = 0;
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+async function load() {
+  const res = await fetch("/api/validation/sample");
+  if (!res.ok) { $("card").innerHTML = `<p class="err">${t("noSample")}</p>`; render(); return; }
+  const gj = await res.json();
+  META = gj.meta || {};
+  SAMPLE = gj.features.map(f => f.properties);
+  let server = {};
+  try { const r = await fetch("/api/validation/labels"); if (r.ok) server = await r.json(); } catch (e) {}
+  const local = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+  LABELS = { ...local, ...server };  // server file wins; local fills gaps if a save failed earlier
+  const firstOpen = SAMPLE.findIndex(s => !LABELS[s.sid]);
+  cur = firstOpen >= 0 ? firstOpen : 0;
+  render();
+}
+
+async function save() {
+  localStorage.setItem(LS_KEY, JSON.stringify(LABELS));
+  try {
+    const r = await fetch("/api/validation/labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(LABELS) });
+    if (!r.ok) throw new Error(r.status);
+    $("status").textContent = `✓ ${t("saved")}`; $("status").className = "status";
+  } catch (e) { $("status").textContent = t("local"); $("status").className = "status err"; }
+}
+
+function setLabel(l) {
+  const s = SAMPLE[cur]; if (!s) return;
+  LABELS[s.sid] = { label: l, ts: new Date().toISOString() };
+  save();
+  const next = SAMPLE.findIndex((x, i) => i > cur && !LABELS[x.sid]);
+  if (next >= 0) cur = next; else if (cur < SAMPLE.length - 1) cur++;
+  render();
+}
+
+function go(i) { cur = Math.max(0, Math.min(SAMPLE.length - 1, i)); render(); }
+
+function render() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("on", b.dataset.lang === lang));
+  $("title").textContent = t("title"); $("dl").textContent = t("dl"); $("foot").textContent = t("foot");
+  const done = SAMPLE.filter(s => LABELS[s.sid]).length;
+  $("count").textContent = `${done} / ${SAMPLE.length} ${t("done")}`;
+  $("prog").style.width = SAMPLE.length ? `${100 * done / SAMPLE.length}%` : 0;
+  const s = SAMPLE[cur];
+  if (!s) return;
+  $("question").innerHTML = t("q", s.y0, s.y1);
+  const lab = (LABELS[s.sid] || {}).label;
+  const gmaps = `https://www.google.com/maps/@${s.lat},${s.lng},300m/data=!3m1!1e3`;
+  const osm = `https://www.openstreetmap.org/?mlat=${s.lat}&mlon=${s.lng}#map=17/${s.lat}/${s.lng}`;
+  $("card").innerHTML = `
+    <div class="chips">
+      <div class="chip"><img src="${esc(s.chip_before)}" alt="${s.y0}"><span>${s.y0}</span></div>
+      <div class="chip"><img src="${esc(s.chip_after)}" alt="${s.y1}"><span>${s.y1}</span></div>
+    </div>
+    <div class="meta"><span><b>${esc(s.sid)}</b> · ${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</span>
+      <span><a href="${gmaps}" target="_blank" rel="noopener">${t("maps")}</a> · <a href="${osm}" target="_blank" rel="noopener">${t("osm")}</a></span></div>
+    <div class="answers">
+      ${["real", "false", "unclear"].map((l, i) => `<button data-l="${l}" class="${lab === l ? "sel" : ""}"><kbd>${i + 1}</kbd>${t(l)}</button>`).join("")}
+    </div>
+    <div class="nav"><button class="btn" id="prev">${t("prev")}</button>
+      <button class="btn" id="nextU">${t("nextU")}</button>
+      <button class="btn" id="next">${t("next")}</button></div>`;
+  $("card").querySelectorAll(".answers button").forEach(b => b.onclick = () => setLabel(b.dataset.l));
+  $("prev").onclick = () => go(cur - 1);
+  $("next").onclick = () => go(cur + 1);
+  $("nextU").onclick = () => { const i = SAMPLE.findIndex(x => !LABELS[x.sid]); if (i >= 0) go(i); };
+  $("grid").innerHTML = SAMPLE.map((x, i) => `<button data-i="${i}" class="${(LABELS[x.sid] || {}).label || ""} ${i === cur ? "cur" : ""}">${x.sid.slice(1)}</button>`).join("");
+  $("grid").querySelectorAll("button").forEach(b => b.onclick = () => go(+b.dataset.i));
+}
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "1") setLabel("real"); else if (e.key === "2") setLabel("false"); else if (e.key === "3") setLabel("unclear");
+  else if (e.key === "ArrowLeft") go(cur - 1); else if (e.key === "ArrowRight") go(cur + 1);
+});
+document.querySelectorAll(".lang button").forEach(b => b.onclick = () => { lang = b.dataset.lang; localStorage.setItem("gw_lang", lang); render(); });
+$("dl").onclick = () => {
+  const blob = new Blob([JSON.stringify(LABELS, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "labels.json"; a.click();
+};
+load();
+</script>
+</body>
+</html>

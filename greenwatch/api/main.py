@@ -10,7 +10,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +21,7 @@ WEB = ROOT / "web"
 
 app = FastAPI(title="Tashkent Green Watch API", version="0.1.0",
               description="Green-cover segmentation & change detection for Tashkent (Sentinel-2 + U-Net)")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
 def _json(path: Path):
@@ -94,8 +94,44 @@ def point(lat: float = Query(..., ge=-90, le=90), lng: float = Query(..., ge=-18
     return {"lat": lat, "lng": lng, "threshold": index["threshold"], "series": series}
 
 
+VALIDATION = OUT / "validation"
+VALID_LABELS = {"real", "false", "unclear"}
+
+
+@app.get("/api/validation/sample")
+def validation_sample():
+    return JSONResponse(_json(VALIDATION / "change_sample.geojson"))
+
+
+@app.get("/api/validation/labels")
+def validation_labels():
+    path = VALIDATION / "labels.json"
+    return _json(path) if path.exists() else {}
+
+
+@app.post("/api/validation/labels")
+def save_validation_labels(labels: dict = Body(...)):
+    """Replace labels.json with {sid: {"label": real|false|unclear, "ts": ...}} for known sample ids."""
+    sids = {f["properties"]["sid"] for f in _json(VALIDATION / "change_sample.geojson")["features"]}
+    clean = {}
+    for sid, v in labels.items():
+        if sid not in sids or not isinstance(v, dict) or v.get("label") not in VALID_LABELS:
+            raise HTTPException(422, f"bad label for {sid!r}")
+        clean[sid] = {"label": v["label"], "ts": str(v.get("ts", ""))[:40]}
+    with open(VALIDATION / "labels.json", "w") as f:
+        json.dump(clean, f, indent=2)
+    return {"saved": len(clean)}
+
+
 if (OUT / "overlays").exists():
     app.mount("/overlays", StaticFiles(directory=OUT / "overlays"), name="overlays")
+if VALIDATION.exists():
+    app.mount("/validation", StaticFiles(directory=VALIDATION), name="validation")
+
+
+@app.get("/validate")
+def validate_page():
+    return FileResponse(WEB / "validate.html")
 
 
 @app.get("/")

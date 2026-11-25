@@ -1,4 +1,13 @@
-"""Model definition, checkpoint IO and sliding-window inference."""
+"""Model definition, checkpoint IO, sliding-window inference and the fold ensemble.
+
+Deployed model = ensemble of the spatial-fold models (outputs/models/fold*/best.pt):
+P(green) is the mean of the members' probabilities, each member normalising the
+input with its own train statistics. Averaging models trained on different block
+splits reduces the variance of a single split. The ensemble threshold is the mean
+of the members' val-tuned thresholds. NOTE: the ensemble has no clean held-out
+score — every fold's test blocks are training data for some other member — so the
+reported metrics are per-fold (single-model) estimates.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -60,3 +69,31 @@ def predict_scene(model, feats: np.ndarray, meta: dict, device, tile=256, overla
             acc[r:r + tile, c:c + tile] += pr * win
             wsum[r:r + tile, c:c + tile] += win
     return acc / np.maximum(wsum, 1e-6)
+
+
+def ensemble_paths(models_dir) -> list[Path]:
+    """Fold checkpoints if present (fold0, fold1, ...), else the single best.pt."""
+    models_dir = Path(models_dir)
+    folds = sorted(models_dir.glob("fold*/best.pt"))
+    return folds or [models_dir / "best.pt"]
+
+
+def deployed_threshold(models_dir) -> float:
+    """Mean of the members' val-tuned thresholds (reads only checkpoint metadata)."""
+    ths = [float(torch.load(pth, map_location="cpu", weights_only=False)["meta"]["threshold"])
+           for pth in ensemble_paths(models_dir)]
+    return float(np.mean(ths))
+
+
+def load_ensemble(models_dir, device="cpu"):
+    """-> list of (model, meta) for every ensemble member."""
+    return [load_checkpoint(pth, device) for pth in ensemble_paths(models_dir)]
+
+
+def predict_scene_ensemble(members, feats: np.ndarray, device, tile=256, overlap=0.5) -> np.ndarray:
+    """Mean of the members' sliding-window probability maps."""
+    acc = None
+    for model, meta in members:
+        prob = predict_scene(model, feats, meta, device, tile=tile, overlap=overlap)
+        acc = prob if acc is None else acc + prob
+    return acc / len(members)

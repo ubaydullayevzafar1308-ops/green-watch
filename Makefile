@@ -1,5 +1,5 @@
 PY ?= python
-.PHONY: setup demo download pipeline tiles train infer change aggregate serve serve-demo test mlflow docker
+.PHONY: setup demo download pipeline tiles train infer change aggregate validation validation-score serve serve-demo test mlflow docker
 
 setup:        ## install dependencies (inside your conda env)
 	$(PY) -m pip install -r requirements.txt
@@ -9,7 +9,7 @@ download:     ## Sentinel-2 composites + WorldCover labels (internet, ~GBs)
 	$(PY) -m greenwatch download
 pipeline:     ## tiles -> train -> infer -> change -> aggregate on real data
 	$(PY) -m greenwatch pipeline
-tiles train infer change aggregate:
+tiles train infer change aggregate validation validation-score:
 	$(PY) -m greenwatch $@
 serve:
 	$(PY) -m greenwatch serve

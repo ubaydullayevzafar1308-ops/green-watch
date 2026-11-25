@@ -9,3 +9,4 @@ mlruns/
 .DS_Store
 .venv/
 mlflow.db
+data/raw_*/

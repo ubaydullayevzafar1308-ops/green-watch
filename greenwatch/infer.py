@@ -1,4 +1,4 @@
-"""Run the trained model on every year's composite.
+"""Run the deployed model (fold ensemble, see model.py) on every year's composite.
 
 Outputs:
   outputs/pred/prob_{year}.tif     uint8, P(green)*250, 255 = nodata
@@ -14,7 +14,7 @@ from PIL import Image
 
 from greenwatch.config import get_device, load_config, p, save_json
 from greenwatch.features import compute_features
-from greenwatch.model import load_checkpoint, predict_scene
+from greenwatch.model import ensemble_paths, load_ensemble, predict_scene_ensemble
 from greenwatch.raster import read_tif, to_web_overlay, write_tif
 
 NODATA = 255
@@ -64,20 +64,24 @@ def main(argv=None, cfg=None):
     a = ap.parse_args(argv)
     cfg = cfg or load_config(a.config)
     device = get_device()
-    model, meta = load_checkpoint(p(cfg, "models") / "best.pt", device)
+    members = load_ensemble(p(cfg, "models"), device)
+    meta = members[0][1]
+    threshold = float(np.mean([m["threshold"] for _, m in members]))
     tile = cfg["dataset"]["tile_size"]
-    index = {"years": [], "threshold": meta["threshold"], "bounds": None}
+    print(f"[infer] ensemble of {len(members)} model(s): "
+          f"{[str(x.relative_to(p(cfg, 'models'))) for x in ensemble_paths(p(cfg, 'models'))]}, threshold {threshold:.3f}")
+    index = {"years": [], "threshold": threshold, "bounds": None, "ensemble_size": len(members)}
     for y in available_years(cfg):
         s2, tr, crs, _ = read_tif(p(cfg, "raw") / f"s2_{y}.tif")
         feats, valid = compute_features(s2, meta["bands"], meta["indices"])
-        prob = predict_scene(model, feats, meta, device, tile=tile)
+        prob = predict_scene_ensemble(members, feats, device, tile=tile)
         write_tif(p(cfg, "pred") / f"prob_{y}.tif", prob_to_uint8(prob, valid), tr, crs, nodata=NODATA)
         prob_nan = np.where(valid, prob, np.nan)
-        g_img, bounds = green_overlay(prob_nan, tr, crs, meta["threshold"])
+        g_img, bounds = green_overlay(prob_nan, tr, crs, threshold)
         r_img, _ = rgb_overlay(s2, meta["bands"], tr, crs)
         g_img.save(p(cfg, "overlays") / f"green_{y}.png", optimize=True)
         r_img.save(p(cfg, "overlays") / f"rgb_{y}.png", optimize=True)
-        frac = float((prob[valid] >= meta["threshold"]).mean()) if valid.any() else float("nan")
+        frac = float((prob[valid] >= threshold).mean()) if valid.any() else float("nan")
         print(f"[infer {y}] green cover {frac:.1%}")
         index["years"].append(y)
         index["bounds"] = bounds
