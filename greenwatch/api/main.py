@@ -62,7 +62,7 @@ def changes(kind: str, y0: int, y1: int, min_area_m2: float = 0, confirmed_only:
         raise HTTPException(400, "kind must be loss or gain")
     gj = _json(OUT / "change" / f"{kind}_{y0}_{y1}.geojson")
     feats = [f for f in gj["features"] if f["properties"].get("area_m2", 0) >= min_area_m2
-             and (not confirmed_only or f["properties"].get("confirmed", True))]
+             and (not confirmed_only or f["properties"].get("confirmed") is True)]  # null = not checked
     return JSONResponse({"type": "FeatureCollection", "features": feats})
 
 

@@ -29,9 +29,10 @@ dataset:
   tile_size: 256
   train_year: 2021          # imagery + labels used for training
   temporal_test_year: 2020  # different year -> tests generalisation in time
-  block_size: 1024          # spatial blocks for leakage-free train/val/test split
+  block_size: 512           # spatial blocks for leakage-free train/val/test split
+  buffer_px: 64             # no-man's-land between blocks of different splits (excluded from all splits)
   split: {train: 0.7, val: 0.15, test: 0.15}
-  seed: 42
+  fold_seeds: [42, 43, 44]  # spatial folds = independent block assignments; report mean ± std
 
 model:
   arch: "Unet"
@@ -40,17 +41,19 @@ model:
   extra_indices: ["NDVI", "NDBI"]
 
 train:
-  epochs: 15
+  epochs: 40
   batch_size: 16
+  crops_per_epoch: 500      # random tile_size crops fully inside the train core, per epoch
   lr: 0.0003
   weight_decay: 0.0001
   num_workers: 0
-  patience: 4               # early stopping on val IoU
+  patience: 8               # early stopping on val IoU
 
 change:
-  # hysteresis: green before (p >= high) and not green after (p <= low)
-  high: 0.6
-  low: 0.3
+  # hysteresis around the model threshold thr (from the checkpoint):
+  # green before (p >= thr + high_offset) and not green after (p <= thr - low_offset), clipped to 0.05..0.95
+  high_offset: 0.15
+  low_offset: 0.15
   min_area_m2: 500          # drop tiny blobs (noise)
   opening_iterations: 1
 

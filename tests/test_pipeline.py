@@ -48,8 +48,9 @@ def test_hysteresis_detects_loss_only():
     p1 = p0.copy()
     p1[5:15, 5:15] = 0.1   # real loss
     p1[20:28, 20:28] = 0.5  # ambiguous -> ignored
-    cfg = {"high": 0.6, "low": 0.3, "min_area_m2": 500, "opening_iterations": 0}
-    mask, _, n = detect(p0, p1, np.ones_like(p0, bool), cfg, res_m=10, kind="loss")
+    cfg = {"high_offset": 0.15, "low_offset": 0.15, "min_area_m2": 500, "opening_iterations": 0}
+    # model threshold 0.45 -> high 0.60 / low 0.30
+    mask, _, n = detect(p0, p1, np.ones_like(p0, bool), cfg, res_m=10, kind="loss", thr=0.45)
     assert n == 1 and mask[10, 10] and not mask[24, 24]
 
 
@@ -59,7 +60,10 @@ def test_end_to_end_synthetic(tmp_path):
     from greenwatch.config import deep_merge
     from greenwatch.data import synthetic
 
-    over = deep_merge(DEMO_OVERRIDES, {"train": {"epochs": 2}, "imagery": {"years": [2020, 2021, 2022]}})
+    # small scene -> smaller tiles/blocks so that every split exists and train crops fit inside the core
+    over = deep_merge(DEMO_OVERRIDES, {"train": {"epochs": 2, "crops_per_epoch": 32},
+                                       "dataset": {"tile_size": 64, "block_size": 128, "buffer_px": 16},
+                                       "imagery": {"years": [2020, 2021, 2022]}})
     over["paths"] = {k: str(tmp_path / k) for k in DEMO_OVERRIDES["paths"]}
     cfg = load_config(overrides=over)
     synthetic.generate(cfg, size=384)

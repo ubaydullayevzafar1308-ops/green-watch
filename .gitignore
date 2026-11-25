@@ -8,3 +8,4 @@ outputs/
 mlruns/
 .DS_Store
 .venv/
+mlflow.db

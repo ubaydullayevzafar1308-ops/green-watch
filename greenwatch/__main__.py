@@ -20,9 +20,9 @@ import sys
 from greenwatch.config import load_config
 
 DEMO_OVERRIDES = {
-    "dataset": {"tile_size": 128, "block_size": 256},
+    "dataset": {"tile_size": 128, "block_size": 256, "fold_seeds": [42]},
     "model": {"encoder": "resnet18", "encoder_weights": None},
-    "train": {"epochs": 12, "batch_size": 8, "patience": 5, "lr": 0.001},
+    "train": {"epochs": 12, "batch_size": 8, "patience": 5, "lr": 0.001, "crops_per_epoch": 160},
     "change": {"min_area_m2": 800},
     "paths": {
         "raw": "data/demo/raw", "tiles": "data/demo/tiles", "models": "outputs/demo/models",

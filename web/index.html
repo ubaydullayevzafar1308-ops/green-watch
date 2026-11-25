@@ -134,7 +134,7 @@ let lang = localStorage.getItem("gw_lang") || "uz";
 const t = k => (I18N[lang] || I18N.en)[k] || k;
 
 const map = L.map("map", { zoomControl: true }).setView([41.31, 69.28], 12);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
   attribution: "&copy; OpenStreetMap &copy; CARTO | Sentinel-2: ESA Copernicus", maxZoom: 19 }).addTo(map);
 
 let META = null, HEX = null;
@@ -222,7 +222,10 @@ function renderSide() {
   const m = META.model_metrics || {};
   const rows = Object.entries(m);
   let html = rows.length ? `<table><tr><th>${t("split")}</th><th>IoU</th><th>F1</th></tr>` +
-    rows.map(([k, v]) => `<tr><td>${k}</td><td>${fmt(v.iou, 3)}</td><td>${fmt(v.f1, 3)}</td></tr>`).join("") + "</table>" : "";
+    rows.map(([k, v]) => { const sd = (META.model_metrics_std || {})[k];
+      const cell = (key) => fmt(v[key], 3) + (sd ? ` <small>± ${fmt(sd[key], 3)}</small>` : "");
+      return `<tr><td>${k}</td><td>${cell("iou")}</td><td>${cell("f1")}</td></tr>`; }).join("") + "</table>" +
+    (META.model_protocol ? `<p><small>${META.model_protocol.folds} folds · block ${META.model_protocol.block_size} px · buffer ${META.model_protocol.buffer_px} px</small></p>` : "") : "";
   if (META.change_eval) html += `<p>${t("eventRecall")}: <b>${META.change_eval.events_detected}/${META.change_eval.events_total}</b>, ${t("pixPrec")}: <b>${fmt(META.change_eval.pixel_precision * 100)}%</b></p>`;
   $("metrics").innerHTML = html + `<p>${t("clickHint")}</p>`;
 }
