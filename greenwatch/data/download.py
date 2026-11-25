@@ -96,7 +96,7 @@ def download_s2_year(cfg, year: int, catalog=None, geobox=None) -> str:
     print(f"[s2 {year}] clear-pixel coverage: {valid_frac:.1%}")
     out = np.where(np.isfinite(comp), np.clip(comp * 10000, 1, 65535), 0).astype(np.uint16)
     path = p(cfg, "raw") / f"s2_{year}.tif"
-    write_tif(path, out, geobox.affine, str(geobox.crs), nodata=0, band_names=bands)
+    write_tif(path, out, geobox.affine, str(geobox.crs), nodata=0, band_names=im["bands"])
     return str(path)
 
 

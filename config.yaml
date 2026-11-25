@@ -14,7 +14,7 @@ imagery:
   years: [2019, 2020, 2021, 2022, 2023, 2024, 2025]
   season: ["06-01", "08-31"]   # summer: vegetation at peak, few clouds
   max_cloud: 30                # scene-level cloud %, pixel-level masking via SCL
-  max_scenes: 24               # cap per year (least cloudy first)
+  max_scenes: 8                # cap per year (least cloudy first)
   bands: ["B02", "B03", "B04", "B08", "B11", "B12"]
 
 labels:
@@ -40,12 +40,12 @@ model:
   extra_indices: ["NDVI", "NDBI"]
 
 train:
-  epochs: 40
+  epochs: 15
   batch_size: 16
   lr: 0.0003
   weight_decay: 0.0001
   num_workers: 0
-  patience: 8               # early stopping on val IoU
+  patience: 4               # early stopping on val IoU
 
 change:
   # hysteresis: green before (p >= high) and not green after (p <= low)
